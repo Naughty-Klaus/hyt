@@ -1,0 +1,13 @@
+# Only include necessary files in npm package
+node_modules/
+src/
+tsconfig.json
+.github/
+.releaserc.json
+SETUP_CICD.md
+CONTRIBUTING.md
+.gitignore
+.git/
+_bmad/
+_bmad-output/
+*.log

@@ -151,8 +151,8 @@ export function setupCommand(): Command {
         await saveConfig(config as ConfigSchema);
         saveSpinner.succeed('Configuration saved');
 
-        success('\\n✨ HYT setup complete!');
-        console.log('\\nYou can now use the following commands:');
+        success('\n✨ HYT setup complete!');
+        console.log('\nYou can now use the following commands:');
         console.log('  hyt init <project-name>  - Create a new Hytale plugin project');
         console.log('  hyt build                - Build your plugin');
         console.log('  hyt dev                  - Start development mode with hot reload');

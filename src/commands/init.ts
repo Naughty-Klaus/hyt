@@ -131,6 +131,9 @@ export function initCommand(): Command {
             const srcRefDir = path.join(pluginsDir, 'src-ref');
             await fs.mkdir(srcRefDir, { recursive: true });
             
+            info('⏱️  Generating reference sources (this may take several minutes)...');
+            info('💡 Tip: Use --skip-cfr to skip this step in future runs\n');
+            
             try {
               const startTime = Date.now();
               

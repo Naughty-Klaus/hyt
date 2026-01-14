@@ -126,6 +126,10 @@ Configuration is stored in `~/.hyt/config.json`:
 }
 ```
 
+## Credits
+
+The default plugin template is provided by [hytale-france/example-mod](https://github.com/hytale-france/example-mod).
+
 ## License
 
 MIT
