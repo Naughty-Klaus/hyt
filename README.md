@@ -82,7 +82,7 @@ Options:
 
 ### Development Mode
 
-Start file watching with hot reload:
+Start development mode with automatic rebuild on file changes:
 
 ```bash
 cd my-plugin/Server/Plugins/my-plugin
@@ -93,10 +93,24 @@ This will:
 1. Build your plugin
 2. Start the Hytale server
 3. Watch for file changes
-4. Rebuild and restart on save
+4. Auto-rebuild when you save (with 5-second debounce)
+5. Copy updated JAR to mods folder
+
+**Note:** The server does NOT auto-restart. After changes are built, manually restart the server to apply updates.
 
 Options:
-- `--no-initial-build` - Skip initial build
+- `--no-initial-build` - Skip initial build on startup
+- `--debounce <seconds>` - Seconds to wait after last change before rebuilding (default: 5)
+
+### Generate Reference Sources
+
+Optionally generate decompiled Hytale server sources for API exploration:
+
+```bash
+hyt generate-references
+```
+
+This takes 5-10 minutes and creates reference sources in `Server/Plugins/src-ref/`. Useful for understanding the Hytale API.
 
 ## Project Structure
 

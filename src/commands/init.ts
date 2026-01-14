@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import fs from 'fs/promises';
 import path from 'path';
 import { execa } from 'execa';
+import readline from 'readline';
 import { loadConfig } from '../utils/config.js';
 import { downloadFile, getTemplateUrl, getCfrUrl } from '../utils/download.js';
 import { startSpinner, success, error, info, warn } from '../utils/ui.js';
@@ -13,7 +14,7 @@ export function initCommand(): Command {
   return new Command('init')
     .description('Create a new Hytale plugin project')
     .argument('<project-name>', 'Name for your plugin project')
-    .option('--skip-cfr', 'Skip CFR decompiler download')
+    .option('--with-cfr', 'Download CFR and generate reference sources (takes ~10 minutes)')
     .option('--skip-git', 'Skip git initialization')
     .action(async (projectName: string, options) => {
       try {
@@ -36,13 +37,54 @@ export function initCommand(): Command {
         const modsDir = path.join(projectDir, 'mods');
 
         // Check if directory already exists
+        let savedCfrPath: string | null = null;
         try {
           await fs.access(projectDir);
-          throw new HytaleError(`Directory "${projectName}" already exists.`);
+          
+          // Directory exists, ask for confirmation
+          warn(`\nDirectory "${projectName}" already exists.`);
+          console.log('⚠️  This will DELETE the existing project and create a new one.');
+          
+          // Check if CFR sources exist
+          const existingSrcRef = path.join(projectDir, 'Server', 'Plugins', 'src-ref');
+          let hasCfrSources = false;
+          try {
+            const stats = await fs.stat(existingSrcRef);
+            if (stats.isDirectory()) {
+              const files = await fs.readdir(existingSrcRef);
+              hasCfrSources = files.length > 0;
+              if (hasCfrSources) {
+                info('📚 Detected existing reference sources - they will be preserved');
+              }
+            }
+          } catch {
+            // No CFR sources, continue
+          }
+          
+          const answer = await askYesNo('\nDo you want to continue?');
+          
+          if (!answer) {
+            info('Operation cancelled.');
+            process.exit(0);
+          }
+          
+          // Save CFR sources if they exist
+          if (hasCfrSources) {
+            savedCfrPath = path.join(process.cwd(), `.hyt-temp-cfr-${Date.now()}`);
+            const saveSpinner = startSpinner('Saving reference sources...');
+            await fs.rename(existingSrcRef, savedCfrPath);
+            saveSpinner.succeed('Reference sources saved');
+          }
+          
+          // Delete existing directory
+          const deleteSpinner = startSpinner('Removing existing project...');
+          await fs.rm(projectDir, { recursive: true, force: true });
+          deleteSpinner.succeed('Existing project removed');
         } catch (err) {
           if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
             throw err;
           }
+          // Directory doesn't exist, continue normally
         }
 
         // Create workspace structure
@@ -102,9 +144,10 @@ export function initCommand(): Command {
 
         // Update project name in template files
         const renameSpinner = startSpinner('Configuring project name...');
+        const packageName = projectName.toLowerCase().replace(/-/g, '_');
         await replaceInFiles(pluginSourceDir, 'ExamplePlugin', toPascalCase(projectName));
         await replaceInFiles(pluginSourceDir, 'example-mod', projectName);
-        await replaceInFiles(pluginSourceDir, 'org.example', `com.${projectName.toLowerCase()}`);
+        await replaceInFiles(pluginSourceDir, 'org.example', `com.${packageName}`);
         
         // Rename the main Java file to match the new class name
         const pascalName = toPascalCase(projectName);
@@ -117,10 +160,20 @@ export function initCommand(): Command {
           // File might already be renamed or in different location
         }
         
+        // Rename the test file to match the new class name
+        const oldTestFile = path.join(pluginSourceDir, 'app', 'src', 'test', 'java', 'org', 'example', 'ExamplePluginTest.java');
+        const newTestFile = path.join(pluginSourceDir, 'app', 'src', 'test', 'java', 'org', 'example', `${pascalName}Test.java`);
+        
+        try {
+          await fs.rename(oldTestFile, newTestFile);
+        } catch {
+          // File might already be renamed or in different location
+        }
+        
         renameSpinner.succeed('Project name configured');
 
         // Download CFR (optional)
-        if (!options.skipCfr) {
+        if (options.withCfr) {
           const cfrSpinner = startSpinner('Downloading CFR decompiler...');
           const cfrPath = path.join(serverDir, 'cfr.jar');
           try {
@@ -132,7 +185,6 @@ export function initCommand(): Command {
             await fs.mkdir(srcRefDir, { recursive: true });
             
             info('⏱️  Generating reference sources (this may take several minutes)...');
-            info('💡 Tip: Use --skip-cfr to skip this step in future runs\n');
             
             try {
               const startTime = Date.now();
@@ -167,8 +219,22 @@ export function initCommand(): Command {
           } catch {
             cfrSpinner.warn('CFR download failed (non-critical, you can download manually)');
           }
-        } else {
-          info('Skipping CFR decompiler download');
+        }
+
+        // Restore saved CFR sources if they exist
+        if (savedCfrPath) {
+          const restoreSpinner = startSpinner('Restoring reference sources...');
+          const srcRefDir = path.join(pluginsDir, 'src-ref');
+          try {
+            await fs.rename(savedCfrPath, srcRefDir);
+            restoreSpinner.succeed('Reference sources restored');
+          } catch (err) {
+            restoreSpinner.fail('Failed to restore reference sources');
+            // Clean up temp directory
+            try {
+              await fs.rm(savedCfrPath, { recursive: true, force: true });
+            } catch {}
+          }
         }
 
         // Initialize git (optional)
@@ -218,6 +284,9 @@ Thumbs.db
    hyt dev                    # Start development mode
 
 📖 Plugin source is in: Server/Plugins/${projectName}/app/src/
+
+💡 Generate decompiled reference sources to explore the Hytale API
+   hyt generate-references    # Takes ~10 minutes
 `);
 
       } catch (err) {
@@ -292,4 +361,19 @@ function toPascalCase(str: string): string {
     .split(/[-_\s]+/)
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join('');
+}
+
+async function askYesNo(question: string): Promise<boolean> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(`${question} (y/N): `, (answer) => {
+      rl.close();
+      const normalized = answer.trim().toLowerCase();
+      resolve(normalized === 'y' || normalized === 'yes');
+    });
+  });
 }

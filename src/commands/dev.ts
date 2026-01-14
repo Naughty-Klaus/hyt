@@ -12,11 +12,13 @@ import type { FSWatcher } from 'chokidar';
 
 let isRebuilding = false;
 let watcher: FSWatcher | null = null;
+let rebuildTimeout: NodeJS.Timeout | null = null;
 
 export function devCommand(): Command {
   return new Command('dev')
     .description('Start development mode with hot reload')
     .option('--no-initial-build', 'Skip initial build on startup')
+    .option('--debounce <seconds>', 'Seconds to wait after last change before rebuilding (default: 5)', '5')
     .action(async (options) => {
       try {
         console.log('\n🔥 Starting development mode...\n');
@@ -96,58 +98,58 @@ export function devCommand(): Command {
 
         // Start watching for file changes
         info('👀 Watching for file changes...\n');
+        console.log('💡 Files will auto-rebuild after changes. Restart server manually to apply updates.');
         console.log('Press Ctrl+C to stop development mode\n');
 
+        const debounceMs = parseInt(options.debounce) * 1000;
         const srcDir = path.join(projectDir, 'app', 'src');
         
         watcher = watchFiles(srcDir, {
           onFileChange: async (filePath: string) => {
             if (isRebuilding) {
-              return; // Avoid concurrent rebuilds
+              return;
             }
 
-            isRebuilding = true;
+            if (rebuildTimeout) {
+              clearTimeout(rebuildTimeout);
+            }
+
             const fileName = path.basename(filePath);
-            console.log(`\n📝 File changed: ${fileName}`);
+            console.log(`\n📝 ${fileName} changed`);
 
-            try {
-              // Rebuild
-              const buildSpinner = startSpinner('Rebuilding...');
-              await runGradleBuild(projectDir);
-              buildSpinner.succeed('Build complete');
+            rebuildTimeout = setTimeout(async () => {
+              isRebuilding = true;
 
-              // Copy new JAR
-              await copyJarToMods(projectDir, modsDir);
+              try {
+                // Rebuild
+                const buildSpinner = startSpinner('Building...');
+                await runGradleBuild(projectDir);
+                buildSpinner.succeed('Build complete');
 
-              // Restart server
-              if (isServerRunning()) {
-                const restartSpinner = startSpinner('Restarting server...');
-                await restartHytaleServer(serverOptions);
-                restartSpinner.succeed('Server restarted');
-                console.log('💡 Remember to authenticate: /auth login device\n');
-              } else {
-                warn('Server not running, starting it...');
-                await launchHytaleServer(serverOptions);
-                console.log('💡 Remember to authenticate: /auth login device\n');
+                // Copy new JAR
+                await copyJarToMods(projectDir, modsDir);
+
+                success('✨ Plugin updated! Restart server to apply changes.\n');
+              } catch (err) {
+                if (err instanceof GradleError) {
+                  error(`Build failed: ${err.message}`);
+                } else {
+                  error(`Build failed: ${(err as Error).message}`);
+                }
+                info('Fix the errors and save again.\n');
+              } finally {
+                isRebuilding = false;
               }
-
-              success('✨ Hot reload complete!\n');
-            } catch (err) {
-              if (err instanceof GradleError) {
-                error(`Build failed: ${err.message}`);
-              } else {
-                error(`Hot reload failed: ${(err as Error).message}`);
-              }
-              info('Fix the errors and save again to rebuild.\n');
-            } finally {
-              isRebuilding = false;
-            }
+            }, debounceMs);
           },
         });
 
-        // Handle graceful shutdown
         const cleanup = async () => {
           console.log('\n\n🛑 Shutting down...');
+          
+          if (rebuildTimeout) {
+            clearTimeout(rebuildTimeout);
+          }
           
           if (watcher) {
             await stopWatcher(watcher);
@@ -174,6 +176,9 @@ export function devCommand(): Command {
         }
         
         // Cleanup on error
+        if (rebuildTimeout) {
+          clearTimeout(rebuildTimeout);
+        }
         if (watcher) {
           await stopWatcher(watcher);
         }
