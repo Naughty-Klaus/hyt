@@ -1,3 +1,10 @@
+## [2.0.3](https://github.com/LunnosMp4/hyt/compare/v2.0.2...v2.0.3) (2026-01-15)
+
+
+### Bug Fixes
+
+* normalize Hytale installation paths and improve validation checks ([7cfbd32](https://github.com/LunnosMp4/hyt/commit/7cfbd32da16141e6b885e35cba2c20a29e4c47b5))
+
 ## [2.0.2](https://github.com/LunnosMp4/hyt/compare/v2.0.1...v2.0.2) (2026-01-15)
 
 
