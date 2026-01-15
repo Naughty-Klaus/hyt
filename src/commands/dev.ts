@@ -80,11 +80,14 @@ export function devCommand(): Command {
 
         // Start Hytale server
         info('Starting Hytale server...\n');
+        // Use JVM args from config, or fall back to defaults
+        const defaultJvmArgs = ['-Xmx2G', '-Xms1G'];
         const serverOptions = {
           javaPath: config.javaPath,
           serverJarPath,
           assetsPath,
           workingDir: projectDir,
+          jvmArgs: config.jvmArgs || defaultJvmArgs,
         };
 
         try {

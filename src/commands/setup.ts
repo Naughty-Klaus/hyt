@@ -12,8 +12,20 @@ export function setupCommand(): Command {
   return new Command('setup')
     .description('Configure HYT with Java and Hytale installation paths')
     .option('--java-path <path>', 'Manually specify Java executable path')
-    .option('--hytale-path <path>', 'Manually specify Hytale installation path')
-    .action(async (options) => {
+    .option('--hytale-path <path>', 'Manually specify Hytale installation path (base folder or full path to Assets.zip)')
+    .addHelpText('after', `
+Examples:
+  $ hyt setup
+    Interactive setup (auto-detect Java and Hytale)
+  
+  $ hyt setup --java-path "C:\\Program Files\\Java\\jdk-25\\bin\\java.exe"
+  
+  $ hyt setup --hytale-path "C:\\Games\\Hytale"
+    Auto-finds Assets.zip in install/release/package/game/latest/
+  
+  $ hyt setup --hytale-path "X:\\Hytale\\install\\release\\package\\game\\latest"
+    Direct path to where Assets.zip is located`)
+    .action(async (options: any) => {
       try {
         console.log('🔧 Setting up HYT...\n');
 
@@ -137,15 +149,20 @@ export function setupCommand(): Command {
           
           // Check if the path already ends with the full structure
           const subfolderStructure = path.join('install', 'release', 'package', 'game', 'latest');
+          let fullPath = basePath;
+          
           if (!basePath.endsWith(subfolderStructure.replace(/\\/g, path.sep))) {
-            const fullPath = path.join(basePath, subfolderStructure);
+            fullPath = path.join(basePath, subfolderStructure);
             const fullPathExists = await verifyHytaleInstall(fullPath);
             
             if (fullPathExists) {
               hytaleInstallPath = fullPath;
               info(`Using Hytale game files at: ${hytaleInstallPath}`);
-            } else {
+            } else if (await verifyHytaleInstall(basePath)) {
               hytaleInstallPath = basePath;
+              info(`Using Hytale game files at: ${hytaleInstallPath}`);
+            } else {
+              hytaleInstallPath = fullPath; // For error message
             }
           } else {
             hytaleInstallPath = basePath;
@@ -154,8 +171,14 @@ export function setupCommand(): Command {
           // Verify path exists and has Assets.zip
           if (!(await verifyHytaleInstall(hytaleInstallPath))) {
             throw new HytaleError(
-              `Hytale installation not found at: ${hytaleInstallPath}\n` +
-              'Make sure Assets.zip exists in the specified directory.'
+              `Hytale installation not found.\n` +
+              `Searched in:\n` +
+              `  - ${basePath}\n` +
+              `  - ${fullPath}\n\n` +
+              `Please ensure one of these paths contains Assets.zip.\n` +
+              `You can provide either:\n` +
+              `  - The base Hytale folder (we'll look for game files in install/release/package/game/latest)\n` +
+              `  - The full path directly to where Assets.zip is located`
             );
           }
         } else {

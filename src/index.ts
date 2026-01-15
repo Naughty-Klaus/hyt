@@ -7,6 +7,7 @@ import { initCommand } from './commands/init.js';
 import { buildCommand } from './commands/build.js';
 import { devCommand } from './commands/dev.js';
 import { referencesCommand } from './commands/references.js';
+import { configCommand } from './commands/config.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -19,6 +20,7 @@ program
   .version(version);
 
 program.addCommand(setupCommand());
+program.addCommand(configCommand());
 program.addCommand(initCommand());
 program.addCommand(buildCommand());
 program.addCommand(devCommand());

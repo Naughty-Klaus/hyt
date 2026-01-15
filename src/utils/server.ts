@@ -10,11 +10,12 @@ export interface ServerOptions {
   serverJarPath: string;
   assetsPath?: string;
   workingDir: string;
+  jvmArgs?: string[]; // e.g., ['-Xmx2G', '-Xms1G']
 }
 
 /** Launch the Hytale server */
 export function launchHytaleServer(options: ServerOptions): void {
-  const { javaPath, serverJarPath, assetsPath, workingDir } = options;
+  const { javaPath, serverJarPath, assetsPath, workingDir, jvmArgs = [] } = options;
 
   try {
     // Stop existing server if running
@@ -22,8 +23,8 @@ export function launchHytaleServer(options: ServerOptions): void {
       stopHytaleServer();
     }
 
-    // Build command args - only include --assets if provided
-    const args = ['-jar', serverJarPath];
+    // Build command args - JVM args first, then -jar, then server args
+    const args = [...jvmArgs, '-jar', serverJarPath];
     if (assetsPath) {
       args.push('--assets', assetsPath);
     }
