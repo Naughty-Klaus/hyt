@@ -5,6 +5,7 @@ import { getConfigDir, getConfigPath } from './paths.js';
 export interface ConfigSchema {
   javaPath: string;
   hytaleInstallPath: string;
+  jvmArgs?: string[]; // JVM arguments like ['-Xmx2G', '-Xms1G']
 }
 
 /** Load configuration from ~/.hyt/config.json */
@@ -44,5 +45,6 @@ export function validateConfig(config: Partial<ConfigSchema>): config is ConfigS
     config.javaPath.length > 0 &&
     typeof config.hytaleInstallPath === 'string' &&
     config.hytaleInstallPath.length > 0
+    // jvmArgs is optional, no validation needed
   );
 }

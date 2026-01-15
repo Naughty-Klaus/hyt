@@ -80,15 +80,18 @@ export function devCommand(): Command {
 
         // Start Hytale server
         info('Starting Hytale server...\n');
+        // Use JVM args from config, or fall back to defaults
+        const defaultJvmArgs = ['-Xmx2G', '-Xms1G'];
         const serverOptions = {
           javaPath: config.javaPath,
           serverJarPath,
           assetsPath,
           workingDir: projectDir,
+          jvmArgs: config.jvmArgs || defaultJvmArgs,
         };
 
         try {
-          launchHytaleServer(serverOptions); // Don't await - let it run in background
+          launchHytaleServer(serverOptions);
           success('✔ Hytale server started\n');
           console.log('📝 Once the server console is ready, run the authentication command:');
           console.log('   /auth login device\n');
