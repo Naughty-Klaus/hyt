@@ -9,19 +9,19 @@ import { ConfigError, HytaleError } from '../utils/errors.js';
 import { copyDirectory, extractZip, replaceInFiles, askYesNo } from '../utils/fs.js';
 import { toPascalCase } from '../utils/string.js';
 
-const TEMPLATE_VERSION = '0.0.1';
+const TEMPLATE_VERSION = 'v0.0.2-HY#2026.01.13-50e69c385';
 
 export function initCommand(): Command {
   return new Command('init')
     .description('Create a new Hytale plugin project')
     .argument('<project-name>', 'Name for your plugin project')
     .option('--with-cfr', 'Download CFR and generate reference sources (takes ~10 minutes)')
+    .option('--without-docs', 'Remove documentation examples from the project')
     .option('--skip-git', 'Skip git initialization')
     .action(async (projectName: string, options) => {
       try {
         console.log(`\n🚀 Creating new Hytale plugin project: ${projectName}\n`);
 
-        // Verify setup has been run
         const config = await loadConfig();
         if (!config) {
           throw new ConfigError(
@@ -29,25 +29,20 @@ export function initCommand(): Command {
           );
         }
 
-        // Define paths
         const workspaceDir = process.cwd();
         const projectDir = path.join(workspaceDir, projectName);
-        const serverDir = path.join(projectDir, 'Server');
-        const pluginsDir = path.join(serverDir, 'Plugins');
-        const pluginSourceDir = path.join(pluginsDir, projectName);
+        const serverDir = path.join(projectDir, 'server', 'Server');
         const modsDir = path.join(projectDir, 'mods');
+        const srcRefDir = path.join(projectDir, 'src-ref');
 
-        // Check if directory already exists
         let savedCfrPath: string | null = null;
         try {
           await fs.access(projectDir);
           
-          // Directory exists, ask for confirmation
           warn(`\nDirectory "${projectName}" already exists.`);
           console.log('⚠️  This will DELETE the existing project and create a new one.');
           
-          // Check if CFR sources exist
-          const existingSrcRef = path.join(projectDir, 'Server', 'Plugins', 'src-ref');
+          const existingSrcRef = path.join(projectDir, 'src-ref');
           let hasCfrSources = false;
           try {
             const stats = await fs.stat(existingSrcRef);
@@ -58,9 +53,7 @@ export function initCommand(): Command {
                 info('📚 Detected existing reference sources - they will be preserved');
               }
             }
-          } catch {
-            // No CFR sources, continue
-          }
+          } catch {}
           
           const answer = await askYesNo('\nDo you want to continue?');
           
@@ -69,7 +62,6 @@ export function initCommand(): Command {
             process.exit(0);
           }
           
-          // Save CFR sources if they exist
           if (hasCfrSources) {
             savedCfrPath = path.join(process.cwd(), `.hyt-temp-cfr-${Date.now()}`);
             const saveSpinner = startSpinner('Saving reference sources...');
@@ -77,7 +69,6 @@ export function initCommand(): Command {
             saveSpinner.succeed('Reference sources saved');
           }
           
-          // Delete existing directory
           const deleteSpinner = startSpinner('Removing existing project...');
           await fs.rm(projectDir, { recursive: true, force: true });
           deleteSpinner.succeed('Existing project removed');
@@ -85,39 +76,10 @@ export function initCommand(): Command {
           if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
             throw err;
           }
-          // Directory doesn't exist, continue normally
         }
 
-        // Create workspace structure
-        const structureSpinner = startSpinner('Creating workspace structure...');
-        await fs.mkdir(projectDir, { recursive: true });
-        await fs.mkdir(serverDir, { recursive: true });
-        await fs.mkdir(pluginsDir, { recursive: true });
-        await fs.mkdir(modsDir, { recursive: true });
-        structureSpinner.succeed('Workspace structure created');
-
-        // Copy server files from Hytale installation
-        const copySpinner = startSpinner('Copying server files from Hytale installation...');
-        const hytaleServerPath = path.join(config.hytaleInstallPath, 'Server');
-        const hytaleAssetsPath = path.join(config.hytaleInstallPath, 'Assets.zip');
-        
-        try {
-          // Copy Server folder
-          await copyDirectory(hytaleServerPath, serverDir);
-          // Copy Assets.zip
-          await fs.copyFile(hytaleAssetsPath, path.join(projectDir, 'Assets.zip'));
-          copySpinner.succeed('Server files copied');
-        } catch (err) {
-          copySpinner.fail('Failed to copy server files');
-          throw new HytaleError(
-            `Could not copy server files from Hytale installation. ` +
-            `Make sure "${config.hytaleInstallPath}" contains Server/ and Assets.zip`
-          );
-        }
-
-        // Download template
         const templateSpinner = startSpinner('Downloading plugin template...');
-        const templateZipPath = path.join(pluginsDir, 'template.zip');
+        const templateZipPath = path.join(workspaceDir, 'template.zip');
         try {
           await downloadFile(getTemplateUrl(), templateZipPath);
           templateSpinner.succeed('Template downloaded');
@@ -128,14 +90,15 @@ export function initCommand(): Command {
           );
         }
 
-        // Extract template
         const extractSpinner = startSpinner('Extracting template...');
         try {
-          await extractZip(templateZipPath, pluginsDir);
-          // Rename extracted folder to project name
-          const extractedDir = path.join(pluginsDir, `example-mod-${TEMPLATE_VERSION}`);
-          await fs.rename(extractedDir, pluginSourceDir);
-          // Clean up zip
+          await extractZip(templateZipPath, workspaceDir);
+          const extractedDirName = `example-mod-${TEMPLATE_VERSION.replace(/^v/, '').replace(/#/g, '-')}`;
+          const extractedDir = path.join(workspaceDir, extractedDirName);
+          
+          await fs.rm(projectDir, { recursive: true, force: true });
+          await fs.rename(extractedDir, projectDir);
+          
           await fs.unlink(templateZipPath);
           extractSpinner.succeed('Template extracted');
         } catch (err) {
@@ -143,39 +106,49 @@ export function initCommand(): Command {
           throw err;
         }
 
-        // Update project name in template files
+        await fs.mkdir(serverDir, { recursive: true });
+        await fs.mkdir(modsDir, { recursive: true });
+
+        const serverCopySpinner = startSpinner('Copying server files from Hytale installation...');
+        const hytaleServerPath = path.join(config.hytaleInstallPath, 'Server');
+        const hytaleAssetsPath = path.join(config.hytaleInstallPath, 'Assets.zip');
+        
+        try {
+          await copyDirectory(hytaleServerPath, serverDir);
+          await fs.copyFile(hytaleAssetsPath, path.join(projectDir, 'Assets.zip'));
+          serverCopySpinner.succeed('Server files copied');
+        } catch (err) {
+          serverCopySpinner.fail('Failed to copy server files');
+          throw new HytaleError(
+            `Could not copy server files from Hytale installation. ` +
+            `Make sure "${config.hytaleInstallPath}" contains Server/ and Assets.zip`
+          );
+        }
+
         const renameSpinner = startSpinner('Configuring project name...');
         const packageName = projectName.toLowerCase().replace(/-/g, '_');
-        await replaceInFiles(pluginSourceDir, 'ExamplePlugin', toPascalCase(projectName));
-        await replaceInFiles(pluginSourceDir, 'example-mod', projectName);
-        await replaceInFiles(pluginSourceDir, 'org.example', `com.${packageName}`);
+        await replaceInFiles(projectDir, 'ExamplePlugin', toPascalCase(projectName));
+        await replaceInFiles(projectDir, 'example-mod', projectName);
+        await replaceInFiles(projectDir, 'org.example', `com.${packageName}`);
         
-        // Rename the main Java file to match the new class name
         const pascalName = toPascalCase(projectName);
-        const oldJavaFile = path.join(pluginSourceDir, 'app', 'src', 'main', 'java', 'org', 'example', 'ExamplePlugin.java');
-        const newJavaFile = path.join(pluginSourceDir, 'app', 'src', 'main', 'java', 'org', 'example', `${pascalName}.java`);
+        const oldJavaFile = path.join(projectDir, 'app', 'src', 'main', 'java', 'org', 'example', 'ExamplePlugin.java');
+        const newJavaFile = path.join(projectDir, 'app', 'src', 'main', 'java', 'org', 'example', `${pascalName}.java`);
         
         try {
           await fs.rename(oldJavaFile, newJavaFile);
-        } catch {
-          // File might already be renamed or in different location
-        }
+        } catch {}
         
-        // Rename the test file to match the new class name
-        const oldTestFile = path.join(pluginSourceDir, 'app', 'src', 'test', 'java', 'org', 'example', 'ExamplePluginTest.java');
-        const newTestFile = path.join(pluginSourceDir, 'app', 'src', 'test', 'java', 'org', 'example', `${pascalName}Test.java`);
+        const oldTestFile = path.join(projectDir, 'app', 'src', 'test', 'java', 'org', 'example', 'ExamplePluginTest.java');
+        const newTestFile = path.join(projectDir, 'app', 'src', 'test', 'java', 'org', 'example', `${pascalName}Test.java`);
         
         try {
           await fs.rename(oldTestFile, newTestFile);
-        } catch {
-          // File might already be renamed or in different location
-        }
+        } catch {}
         
-        // Rename package directory structure from org/example to com/packageName
-        const mainJavaDir = path.join(pluginSourceDir, 'app', 'src', 'main', 'java');
-        const testJavaDir = path.join(pluginSourceDir, 'app', 'src', 'test', 'java');
+        const mainJavaDir = path.join(projectDir, 'app', 'src', 'main', 'java');
+        const testJavaDir = path.join(projectDir, 'app', 'src', 'test', 'java');
         
-        // Create new package structure
         const newPackageDir = path.join('com', packageName);
         const newMainPackageDir = path.join(mainJavaDir, newPackageDir);
         const newTestPackageDir = path.join(testJavaDir, newPackageDir);
@@ -183,7 +156,6 @@ export function initCommand(): Command {
         await fs.mkdir(newMainPackageDir, { recursive: true });
         await fs.mkdir(newTestPackageDir, { recursive: true });
         
-        // Move files from org/example to com/packageName
         const oldMainPackageDir = path.join(mainJavaDir, 'org', 'example');
         const oldTestPackageDir = path.join(testJavaDir, 'org', 'example');
         
@@ -195,11 +167,8 @@ export function initCommand(): Command {
               path.join(newMainPackageDir, file)
             );
           }
-          // Clean up old directory structure
           await fs.rm(path.join(mainJavaDir, 'org'), { recursive: true, force: true });
-        } catch {
-          // Directory might not exist or already moved
-        }
+        } catch {}
         
         try {
           const testFiles = await fs.readdir(oldTestPackageDir);
@@ -209,35 +178,82 @@ export function initCommand(): Command {
               path.join(newTestPackageDir, file)
             );
           }
-          // Clean up old directory structure
           await fs.rm(path.join(testJavaDir, 'org'), { recursive: true, force: true });
-        } catch {
-          // Directory might not exist or already moved
-        }
+        } catch {}
         
         renameSpinner.succeed('Project name configured');
 
-        // Download CFR (optional)
+        // Remove docs folder if --without-docs flag is set
+        if (options.withoutDocs) {
+          const docsSpinner = startSpinner('Removing documentation examples...');
+          const docsDir = path.join(newMainPackageDir, 'docs');
+          
+          try {
+            await fs.rm(docsDir, { recursive: true, force: true });
+            
+            // Update main class to remove docs references
+            const mainClassFile = path.join(newMainPackageDir, `${pascalName}.java`);
+            let mainClassContent = await fs.readFile(mainClassFile, 'utf-8');
+            
+            // Add Level import if not present
+            if (!mainClassContent.includes('import java.util.logging.Level;')) {
+              mainClassContent = mainClassContent.replace(
+                /(import com\.hypixel\.hytale\.server\.core\.plugin\.JavaPlugin;)/,
+                '$1\nimport java.util.logging.Level;'
+              );
+            }
+            
+            // Replace the start() method to remove docs command registration
+            mainClassContent = mainClassContent.replace(
+              /(@Override\s+public void start\(\)\s*\{)[\s\S]*?(\}\s+@Override\s+public void shutdown)/,
+              `$1\n        getLogger().at(Level.INFO).log("${pascalName} plugin started!");\n    $2`
+            );
+            
+            // Remove the docs package comment if it exists
+            mainClassContent = mainClassContent.replace(
+              /\/\*\*\s*\*[^*]*\*\s*Individual documentation examples.*?\*\//s,
+              '/**\n * Main plugin class.\n */'
+            );
+            
+            await fs.writeFile(mainClassFile, mainClassContent);
+            docsSpinner.succeed('Documentation examples removed');
+          } catch (err) {
+            docsSpinner.warn('Could not remove docs (may not exist)');
+          }
+        }
+
+        const buildGradleSpinner = startSpinner('Configuring Gradle build settings...');
+        try {
+          const buildGradlePath = path.join(projectDir, 'app', 'build.gradle.kts');
+          let buildGradleContent = await fs.readFile(buildGradlePath, 'utf-8');
+          
+          if (!buildGradleContent.includes('-Xlint:-removal')) {
+            buildGradleContent = buildGradleContent.replace(
+              /(tasks\.withType<JavaCompile>\s*\{[^}]*)/,
+              `$1\n    options.compilerArgs.add("-Xlint:-removal")`
+            );
+            
+            await fs.writeFile(buildGradlePath, buildGradleContent);
+          }
+          buildGradleSpinner.succeed('Build settings configured');
+        } catch (err) {
+          buildGradleSpinner.warn('Could not configure build settings');
+        }
+
         if (options.withCfr) {
           const cfrSpinner = startSpinner('Downloading CFR decompiler...');
-          const cfrPath = path.join(serverDir, 'cfr.jar');
+          const cfrPath = path.join(projectDir, 'cfr.jar');
           try {
             await downloadFile(getCfrUrl(), cfrPath);
             cfrSpinner.succeed('CFR decompiler downloaded');
 
-            // Generate reference sources with live timer
-            const srcRefDir = path.join(pluginsDir, 'src-ref');
             await fs.mkdir(srcRefDir, { recursive: true });
-            
             info('⏱️  Generating reference sources (this may take several minutes)...');
             
             try {
               const startTime = Date.now();
-              
-              // Create a spinner with live updates
               const refSpinner = startSpinner('Generating reference sources...');
               
-              // Update spinner text every second
               const timerInterval = setInterval(() => {
                 const elapsed = Math.round((Date.now() - startTime) / 1000);
                 refSpinner.text = `Generating reference sources... (${elapsed}s elapsed)`;
@@ -249,7 +265,7 @@ export function initCommand(): Command {
                   path.join(serverDir, 'HytaleServer.jar'),
                   '--outputdir', srcRefDir
                 ], { 
-                  cwd: serverDir,
+                  cwd: projectDir,
                   stdio: 'pipe',
                 });
               } finally {
@@ -266,43 +282,23 @@ export function initCommand(): Command {
           }
         }
 
-        // Restore saved CFR sources if they exist
         if (savedCfrPath) {
           const restoreSpinner = startSpinner('Restoring reference sources...');
-          const srcRefDir = path.join(pluginsDir, 'src-ref');
           try {
             await fs.rename(savedCfrPath, srcRefDir);
             restoreSpinner.succeed('Reference sources restored');
           } catch (err) {
             restoreSpinner.fail('Failed to restore reference sources');
-            // Clean up temp directory
             try {
               await fs.rm(savedCfrPath, { recursive: true, force: true });
             } catch {}
           }
         }
 
-        // Initialize git (optional)
         if (!options.skipGit) {
           const gitSpinner = startSpinner('Initializing git repository...');
           try {
-            await execa('git', ['init'], { cwd: pluginSourceDir });
-            
-            // Create .gitignore
-            const gitignore = `# Build outputs
-build/
-.gradle/
-
-# IDE
-.idea/
-*.iml
-.vscode/
-
-# OS
-.DS_Store
-Thumbs.db
-`;
-            await fs.writeFile(path.join(pluginSourceDir, '.gitignore'), gitignore);
+            await execa('git', ['init'], { cwd: projectDir });
             gitSpinner.succeed('Git repository initialized');
           } catch {
             gitSpinner.warn('Git initialization failed (git may not be installed)');
@@ -311,27 +307,30 @@ Thumbs.db
           info('Skipping git initialization');
         }
 
-        // Success!
         success('\n✨ Project created successfully!');
         console.log(`
 📁 Project structure:
    ${projectName}/
-   ├── Assets.zip
+   ├── app/                   # Your plugin source code
+   │   └── src/main/java/     # Java sources
    ├── mods/                  # Compiled plugins go here
-   └── Server/
-       ├── HytaleServer.jar
-       └── Plugins/
-           └── ${projectName}/   # Your plugin source code
+   ├── server/
+   │   └── Server/            # HytaleServer.jar (not committed)
+   └── src-ref/               # Decompiled references (not committed)
+
+📖 Plugin source is in: app/src/main/java/
+
+💡 (Optional) Generate decompiled reference sources to explore the Hytale API
+   hyt generate-references    # Takes ~10 minutes
+   OR use --with-cfr during project creation
+
+📚 Note: If you want to remove documentation examples, use:
+   hyt init ${projectName} --without-docs
 
 🚀 Next steps:
-   cd ${projectName}/Server/Plugins/${projectName}
+   cd ${projectName}
    hyt build                  # Build your plugin
    hyt dev                    # Start development mode
-
-📖 Plugin source is in: Server/Plugins/${projectName}/app/src/
-
-💡 Generate decompiled reference sources to explore the Hytale API
-   hyt generate-references    # Takes ~10 minutes
 `);
         process.exit(0);
 
