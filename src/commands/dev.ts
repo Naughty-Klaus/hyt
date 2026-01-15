@@ -88,7 +88,7 @@ export function devCommand(): Command {
         };
 
         try {
-          launchHytaleServer(serverOptions); // Don't await - let it run in background
+          launchHytaleServer(serverOptions);
           success('✔ Hytale server started\n');
           console.log('📝 Once the server console is ready, run the authentication command:');
           console.log('   /auth login device\n');

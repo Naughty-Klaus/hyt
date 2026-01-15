@@ -13,13 +13,13 @@ export interface ServerOptions {
 }
 
 /** Launch the Hytale server */
-export async function launchHytaleServer(options: ServerOptions): Promise<ResultPromise> {
+export function launchHytaleServer(options: ServerOptions): void {
   const { javaPath, serverJarPath, assetsPath, workingDir } = options;
 
   try {
     // Stop existing server if running
     if (serverProcess) {
-      await stopHytaleServer();
+      stopHytaleServer();
     }
 
     // Build command args - only include --assets if provided
@@ -36,18 +36,20 @@ export async function launchHytaleServer(options: ServerOptions): Promise<Result
         cwd: workingDir,
         stdio: 'inherit', // Stream output to console
         cleanup: true,
+        reject: false, // Don't reject promise on non-zero exit code
       }
     );
 
     // Handle server exit
-    serverProcess.on('exit', (code: number | null) => {
-      if (code !== 0 && code !== null) {
-        console.log(`\n⚠️  Server exited with code ${code}`);
+    serverProcess.then((result) => {
+      if (result.exitCode !== 0 && result.exitCode !== null) {
+        console.log(`\n⚠️  Server exited with code ${result.exitCode}`);
       }
       serverProcess = null;
+    }).catch((error) => {
+      console.error(`\n❌ Server error: ${error.message}`);
+      serverProcess = null;
     });
-
-    return serverProcess;
   } catch (error) {
     throw new HytaleError(`Failed to launch Hytale server: ${(error as Error).message}`);
   }
@@ -90,9 +92,9 @@ export function isServerRunning(): boolean {
 }
 
 /** Restart the Hytale server */
-export async function restartHytaleServer(options: ServerOptions): Promise<ResultPromise> {
+export async function restartHytaleServer(options: ServerOptions): Promise<void> {
   await stopHytaleServer();
   // Wait a bit before restarting
   await new Promise(resolve => setTimeout(resolve, 2000));
-  return launchHytaleServer(options);
+  launchHytaleServer(options);
 }
