@@ -127,6 +127,8 @@ export function referencesCommand(): Command {
           );
         }
 
+        process.exit(0);
+
       } catch (err) {
         if (err instanceof ConfigError || err instanceof HytaleError) {
           error(err.message);

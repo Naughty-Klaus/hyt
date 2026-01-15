@@ -157,6 +157,8 @@ export function setupCommand(): Command {
         console.log('  hyt build                - Build your plugin');
         console.log('  hyt dev                  - Start development mode with hot reload');
 
+        process.exit(0);
+
       } catch (err) {
         if (err instanceof JavaError || err instanceof HytaleError || err instanceof ConfigError) {
           error(err.message);

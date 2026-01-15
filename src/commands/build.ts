@@ -71,6 +71,8 @@ export function buildCommand(): Command {
 
         console.log(`\n🚀 Ready to test in mods/ folder`);
 
+        process.exit(0);
+
       } catch (err) {
         if (err instanceof GradleError) {
           error(err.message);
