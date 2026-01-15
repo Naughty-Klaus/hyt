@@ -1,3 +1,10 @@
+# [2.1.0](https://github.com/LunnosMp4/hyt/compare/v2.0.3...v2.1.0) (2026-01-15)
+
+
+### Features
+
+* add config command for managing HYT configuration and JVM arguments ([b58ed84](https://github.com/LunnosMp4/hyt/commit/b58ed846d77b679fa44ede59252e380c10b9fcbb))
+
 ## [2.0.3](https://github.com/LunnosMp4/hyt/compare/v2.0.2...v2.0.3) (2026-01-15)
 
 
