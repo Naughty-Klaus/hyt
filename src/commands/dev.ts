@@ -49,7 +49,7 @@ export function devCommand(): Command {
         
         const modsDir = path.join(options.dir || projectDir, 'mods');
         const serverDir = path.join(options.dir || projectDir, 'server', 'Server');
-        const serverJarPath = path.join(options.dir || projectDir, 'HytaleServer.jar');
+        const serverJarPath = path.join(serverDir, 'HytaleServer.jar');
         const assetsPath = path.join(options.dir || projectDir, 'Assets.zip');
 
         try {
