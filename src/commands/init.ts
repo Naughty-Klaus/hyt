@@ -3,22 +3,24 @@ import fs from 'fs/promises';
 import path from 'path';
 import { execa } from 'execa';
 import { loadConfig } from '../utils/config.js';
-import { downloadFile, getTemplateUrl, getCfrUrl } from '../utils/download.js';
+import { downloadFile, getTemplateUrl, getCfrUrl, getVineflowerUrl } from '../utils/download.js';
 import { startSpinner, success, error, info, warn } from '../utils/ui.js';
 import { ConfigError, HytaleError } from '../utils/errors.js';
 import { copyDirectory, extractZip, replaceInFiles, askYesNo } from '../utils/fs.js';
 import { toPascalCase } from '../utils/string.js';
 
-const TEMPLATE_VERSION = 'v0.0.2-HY#2026.01.13-50e69c385';
+const TEMPLATE_VERSION = '1.0.0';
+
+type Decompiler = 'cfr' | 'vineflower';
 
 export function initCommand(): Command {
   return new Command('init')
     .description('Create a new Hytale plugin project')
     .argument('<project-name>', 'Name for your plugin project')
-    .option('--with-cfr', 'Download CFR and generate reference sources (takes ~10 minutes)')
+    .option('--decompiler <type>', 'Generate reference sources with specified decompiler: cfr or vineflower (takes ~10 minutes)')
     .option('--without-docs', 'Remove documentation examples from the project')
     .option('--skip-git', 'Skip git initialization')
-    .action(async (projectName: string, options) => {
+    .action(async (projectName: string, options: { decompiler?: string; withoutDocs?: boolean; skipGit?: boolean }) => {
       try {
         console.log(`\n🚀 Creating new Hytale plugin project: ${projectName}\n`);
 
@@ -93,7 +95,7 @@ export function initCommand(): Command {
         const extractSpinner = startSpinner('Extracting template...');
         try {
           await extractZip(templateZipPath, workspaceDir);
-          const extractedDirName = `example-mod-${TEMPLATE_VERSION.replace(/^v/, '').replace(/#/g, '-')}`;
+          const extractedDirName = `hyt-template-${TEMPLATE_VERSION.replace(/^v/, '').replace(/#/g, '-')}`;
           const extractedDir = path.join(workspaceDir, extractedDirName);
           
           await fs.rm(projectDir, { recursive: true, force: true });
@@ -185,28 +187,28 @@ export function initCommand(): Command {
 
 
         ///////////// Fix plugin configuration. Remove after template is updated /////////////
-        const fixConfigSpinner = startSpinner('Fixing plugin configuration...');
-        try {
-          const mainClassFile = path.join(newMainPackageDir, `${pascalName}.java`);
-          let mainClassContent = await fs.readFile(mainClassFile, 'utf-8');
+        // const fixConfigSpinner = startSpinner('Fixing plugin configuration...');
+        // try {
+        //   const mainClassFile = path.join(newMainPackageDir, `${pascalName}.java`);
+        //   let mainClassContent = await fs.readFile(mainClassFile, 'utf-8');
           
-          mainClassContent = mainClassContent.replace(
-            /(@Override\s+public void setup\(\)\s*\{\s*)config = withConfig\(MyConfig\.CODEC\);/,
-            '$1// Config is initialized in constructor'
-          );
+        //   mainClassContent = mainClassContent.replace(
+        //     /(@Override\s+public void setup\(\)\s*\{\s*)config = withConfig\(MyConfig\.CODEC\);/,
+        //     '$1// Config is initialized in constructor'
+        //   );
           
-          if (!mainClassContent.includes('config = withConfig(MyConfig.CODEC)')) {
-            mainClassContent = mainClassContent.replace(
-              /(public\s+\w+\(JavaPluginInit init\)\s*\{\s*super\(init\);)/,
-              '$1\n        config = withConfig(MyConfig.CODEC);'
-            );
-          }
+        //   if (!mainClassContent.includes('config = withConfig(MyConfig.CODEC)')) {
+        //     mainClassContent = mainClassContent.replace(
+        //       /(public\s+\w+\(JavaPluginInit init\)\s*\{\s*super\(init\);)/,
+        //       '$1\n        config = withConfig(MyConfig.CODEC);'
+        //     );
+        //   }
           
-          await fs.writeFile(mainClassFile, mainClassContent);
-          fixConfigSpinner.succeed('Plugin configuration fixed');
-        } catch (err) {
-          fixConfigSpinner.warn('Could not fix plugin configuration');
-        }
+        //   await fs.writeFile(mainClassFile, mainClassContent);
+        //   fixConfigSpinner.succeed('Plugin configuration fixed');
+        // } catch (err) {
+        //   fixConfigSpinner.warn('Could not fix plugin configuration');
+        // }
         //////////////////////////////////////////////////////////////////////////////////////
 
         // Remove docs folder if --without-docs flag is set
@@ -266,12 +268,22 @@ export function initCommand(): Command {
           buildGradleSpinner.warn('Could not configure build settings');
         }
 
-        if (options.withCfr) {
-          const cfrSpinner = startSpinner('Downloading CFR decompiler...');
-          const cfrPath = path.join(projectDir, 'cfr.jar');
+        if (options.decompiler) {
+          const decompiler = options.decompiler.toLowerCase() as Decompiler;
+          if (decompiler !== 'cfr' && decompiler !== 'vineflower') {
+            throw new HytaleError(
+              `Invalid decompiler: ${options.decompiler}. Use 'cfr' or 'vineflower'`
+            );
+          }
+
+          const decompilerName = decompiler.toUpperCase();
+          const decompilerSpinner = startSpinner(`Downloading ${decompilerName} decompiler...`);
+          const decompilerPath = path.join(projectDir, `${decompiler}.jar`);
+          const decompilerUrl = decompiler === 'cfr' ? getCfrUrl() : getVineflowerUrl();
+          
           try {
-            await downloadFile(getCfrUrl(), cfrPath);
-            cfrSpinner.succeed('CFR decompiler downloaded');
+            await downloadFile(decompilerUrl, decompilerPath);
+            decompilerSpinner.succeed(`${decompilerName} decompiler downloaded`);
 
             await fs.mkdir(srcRefDir, { recursive: true });
             info('⏱️  Generating reference sources (this may take several minutes)...');
@@ -286,11 +298,12 @@ export function initCommand(): Command {
               }, 1000);
 
               try {
-                await execa(config.javaPath, [
-                  '-jar', cfrPath,
-                  path.join(serverDir, 'HytaleServer.jar'),
-                  '--outputdir', srcRefDir
-                ], { 
+                // CFR and Vineflower use different command-line arguments
+                const decompileArgs = decompiler === 'cfr'
+                  ? ['-jar', decompilerPath, path.join(serverDir, 'HytaleServer.jar'), '--outputdir', srcRefDir]
+                  : ['-jar', decompilerPath, path.join(serverDir, 'HytaleServer.jar'), srcRefDir];
+                
+                await execa(config.javaPath, decompileArgs, { 
                   cwd: projectDir,
                   stdio: 'pipe',
                 });
@@ -304,7 +317,7 @@ export function initCommand(): Command {
               warn('Reference source generation failed (non-critical)');
             }
           } catch {
-            cfrSpinner.warn('CFR download failed (non-critical, you can download manually)');
+            decompilerSpinner.warn(`${decompilerName} download failed (non-critical, you can download manually)`);
           }
         }
 
@@ -347,8 +360,9 @@ export function initCommand(): Command {
 📖 Plugin source is in: app/src/main/java/
 
 💡 (Optional) Generate decompiled reference sources to explore the Hytale API
-   hyt generate-references    # Takes ~10 minutes
-   OR use --with-cfr during project creation
+   hyt generate-references --decompiler cfr          # Takes ~10 minutes
+   hyt generate-references --decompiler vineflower   # Alternative decompiler
+   OR use --decompiler during project creation
 
 📚 Note: If you want to remove documentation examples, use:
    hyt init ${projectName} --without-docs
