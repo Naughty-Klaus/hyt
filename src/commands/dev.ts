@@ -20,6 +20,7 @@ export function devCommand(): Command {
     .option('--no-initial-build', 'Skip initial build on startup')
     .option('--watch', 'Enable auto-rebuild on file changes')
     .option('--debounce <seconds>', 'Seconds to wait after last change before rebuilding (default: 5)', '5')
+    .option('--dir <directory>', 'Root directory for server and mods.', process.cwd())
     .action(async (options) => {
       try {
         console.log('\n🔥 Starting development mode...\n');
@@ -45,16 +46,18 @@ export function devCommand(): Command {
         // Expected: we're in project root (where gradlew is)
         // Server: ./server/Server/
         // Mods: ./mods/
-        const modsDir = path.join(projectDir, 'mods');
-        const serverDir = path.join(projectDir, 'server', 'Server');
-        const serverJarPath = path.join(serverDir, 'HytaleServer.jar');
-        const assetsPath = path.join(projectDir, 'Assets.zip');
+        
+        const modsDir = path.join(options.dir || projectDir, 'mods');
+        const serverDir = path.join(options.dir || projectDir, 'server', 'Server');
+        const serverJarPath = path.join(options.dir || projectDir, 'HytaleServer.jar');
+        const assetsPath = path.join(options.dir || projectDir, 'Assets.zip');
 
         try {
           await fs.access(serverJarPath);
           await fs.access(assetsPath);
         } catch {
           throw new HytaleError(
+            options.dir + '\n' +
             'Hytale server files not found.\n' +
             `Expected structure:\n` +
             `  - server/Server/HytaleServer.jar\n` +
@@ -86,7 +89,7 @@ export function devCommand(): Command {
           javaPath: config.javaPath,
           serverJarPath,
           assetsPath,
-          workingDir: projectDir,
+          workingDir: options.dir || projectDir,
           jvmArgs: config.jvmArgs || defaultJvmArgs,
         };
 
