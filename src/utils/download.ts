@@ -5,8 +5,9 @@ import { createWriteStream } from 'fs';
 import path from 'path';
 import cliProgress from 'cli-progress';
 
-const TEMPLATE_URL = 'https://github.com/hytale-france/example-mod/archive/refs/tags/v0.0.2-HY%232026.01.13-50e69c385.zip';
+const TEMPLATE_URL = 'https://github.com/LunnosMp4/hyt-template/archive/refs/tags/v1.0.0.zip';
 const CFR_URL = 'https://www.benf.org/other/cfr/cfr-0.152.jar';
+const VINEFLOWER_URL = 'https://github.com/Vineflower/vineflower/releases/download/1.10.1/vineflower-1.10.1.jar';
 
 /** Download a file from URL to destination with progress bar */
 export async function downloadFile(url: string, destPath: string, maxRedirects = 10): Promise<void> {
@@ -102,10 +103,19 @@ export async function downloadCfr(destPath: string): Promise<void> {
   await downloadFile(CFR_URL, destPath);
 }
 
+/** Download Vineflower decompiler */
+export async function downloadVineflower(destPath: string): Promise<void> {
+  await downloadFile(VINEFLOWER_URL, destPath);
+}
+
 export function getTemplateUrl(): string {
   return TEMPLATE_URL;
 }
 
 export function getCfrUrl(): string {
   return CFR_URL;
+}
+
+export function getVineflowerUrl(): string {
+  return VINEFLOWER_URL;
 }

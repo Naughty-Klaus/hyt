@@ -3,16 +3,27 @@ import fs from 'fs/promises';
 import path from 'path';
 import { execa } from 'execa';
 import { loadConfig } from '../utils/config.js';
-import { downloadFile, getCfrUrl } from '../utils/download.js';
+import { downloadFile, getCfrUrl, getVineflowerUrl } from '../utils/download.js';
 import { startSpinner, success, error, info, warn } from '../utils/ui.js';
 import { ConfigError, HytaleError } from '../utils/errors.js';
 import { directoryExists } from '../utils/fs.js';
+
+type Decompiler = 'cfr' | 'vineflower';
+
 export function referencesCommand(): Command {
   return new Command('generate-references')
     .description('Generate decompiled reference sources from Hytale server JAR (takes ~10 minutes)')
-    .action(async () => {
+    .option('--decompiler <type>', 'Decompiler to use: cfr or vineflower (default: cfr)', 'cfr')
+    .action(async (options: { decompiler: string }) => {
       try {
-        console.log('\n📚 Generating reference sources...\n');
+        const decompiler = options.decompiler.toLowerCase() as Decompiler;
+        if (decompiler !== 'cfr' && decompiler !== 'vineflower') {
+          throw new HytaleError(
+            `Invalid decompiler: ${options.decompiler}. Use 'cfr' or 'vineflower'`
+          );
+        }
+
+        console.log(`\n📚 Generating reference sources with ${decompiler.toUpperCase()}...\n`);
 
         // Verify setup has been run
         const config = await loadConfig();
@@ -25,27 +36,38 @@ export function referencesCommand(): Command {
         // Find project structure
         const cwd = process.cwd();
         
-        // Try to locate Server directory
-        let serverDir: string;
-        let pluginsDir: string;
+        // Try to locate Server directory and determine project root
+        let serverDir: string | null = null;
+        let projectDir: string | null = null;
         
+        // Check if we're in project root with server/Server structure FIRST
+        if (await directoryExists(path.join(cwd, 'server', 'Server'))) {
+          projectDir = cwd;
+          serverDir = path.join(cwd, 'server', 'Server');
+        }
+        // Check if we're in project root with Server directory
+        else if (await directoryExists(path.join(cwd, 'Server'))) {
+          projectDir = cwd;
+          serverDir = path.join(cwd, 'Server');
+        }
         // Check if we're in plugin directory
-        if (await directoryExists(path.join(cwd, 'app'))) {
+        else if (await directoryExists(path.join(cwd, 'app'))) {
           // We're in Server/Plugins/plugin-name/
+          projectDir = path.resolve(cwd, '..', '..', '..');
           serverDir = path.resolve(cwd, '..', '..');
-          pluginsDir = path.resolve(cwd, '..');
         }
         // Check if we're in Plugins directory
         else if (await directoryExists(path.join(cwd, '..', 'Server'))) {
+          projectDir = path.resolve(cwd, '..', '..');
           serverDir = path.join(cwd, '..', 'Server');
-          pluginsDir = path.join(serverDir, 'Plugins');
         }
-        // Check if we're in project root
-        else if (await directoryExists(path.join(cwd, 'Server'))) {
-          serverDir = path.join(cwd, 'Server');
-          pluginsDir = path.join(serverDir, 'Plugins');
+        // Check if we're in Server directory
+        else if (await directoryExists(path.join(cwd, 'Plugins'))) {
+          projectDir = path.resolve(cwd, '..');
+          serverDir = cwd;
         }
-        else {
+
+        if (!serverDir || !projectDir) {
           throw new HytaleError(
             'Could not find Hytale server directory.\n' +
             'Run this command from your project root, Plugins directory, or plugin directory.'
@@ -63,26 +85,38 @@ export function referencesCommand(): Command {
           );
         }
 
-        // Download CFR if not present
-        const cfrPath = path.join(serverDir, 'cfr.jar');
+        // Download decompiler if not present
+        const decompilerFileName = `${decompiler}.jar`;
+        const decompilerPath = path.join(serverDir, decompilerFileName);
+        const decompilerUrl = decompiler === 'cfr' ? getCfrUrl() : getVineflowerUrl();
+        const decompilerName = decompiler.toUpperCase();
+        
         try {
-          await fs.access(cfrPath);
-          info('Using existing CFR decompiler');
+          await fs.access(decompilerPath);
+          info(`Using existing ${decompilerName} decompiler`);
         } catch {
-          const cfrSpinner = startSpinner('Downloading CFR decompiler...');
+          const downloadSpinner = startSpinner(`Downloading ${decompilerName} decompiler...`);
           try {
-            await downloadFile(getCfrUrl(), cfrPath);
-            cfrSpinner.succeed('CFR decompiler downloaded');
+            await downloadFile(decompilerUrl, decompilerPath);
+            downloadSpinner.succeed(`${decompilerName} decompiler downloaded`);
           } catch (err) {
-            cfrSpinner.fail('Failed to download CFR');
+            downloadSpinner.fail(`Failed to download ${decompilerName}`);
             throw new HytaleError(
-              `Could not download CFR: ${(err as Error).message}`
+              `Could not download ${decompilerName}: ${(err as Error).message}`
             );
           }
         }
 
         // Generate reference sources
-        const srcRefDir = path.join(pluginsDir, 'src-ref');
+        const srcRefDir = path.join(projectDir, 'src-ref');
+        
+        // Clear existing sources to ensure clean decompilation
+        try {
+          await fs.rm(srcRefDir, { recursive: true, force: true });
+        } catch {
+          // Directory doesn't exist yet, that's fine
+        }
+        
         await fs.mkdir(srcRefDir, { recursive: true });
 
         info('⏱️  This will take several minutes (typically 5-10 minutes)');
@@ -101,11 +135,12 @@ export function referencesCommand(): Command {
         }, 1000);
 
         try {
-          await execa(config.javaPath, [
-            '-jar', cfrPath,
-            serverJarPath,
-            '--outputdir', srcRefDir
-          ], {
+          // CFR and Vineflower use different command-line arguments
+          const decompileArgs = decompiler === 'cfr'
+            ? ['-jar', decompilerPath, serverJarPath, '--outputdir', srcRefDir]
+            : ['-jar', decompilerPath, serverJarPath, srcRefDir];
+          
+          await execa(config.javaPath, decompileArgs, {
             cwd: serverDir,
             stdio: 'pipe',
           });
@@ -123,7 +158,7 @@ export function referencesCommand(): Command {
           clearInterval(timerInterval);
           refSpinner.fail('Failed to generate reference sources');
           throw new HytaleError(
-            `CFR decompilation failed: ${(err as Error).message}`
+            `${decompilerName} decompilation failed: ${(err as Error).message}`
           );
         }
 
