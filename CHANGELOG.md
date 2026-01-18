@@ -1,3 +1,10 @@
+# [2.2.0](https://github.com/LunnosMp4/hyt/compare/v2.1.1...v2.2.0) (2026-01-18)
+
+
+### Features
+
+* enhance init and references commands to support Vineflower decompiler, change template download link to use selfhosted repo ([17843f0](https://github.com/LunnosMp4/hyt/commit/17843f0c5ac1c6fc261bea2f627ead0c03d82506))
+
 ## [2.1.1](https://github.com/LunnosMp4/hyt/compare/v2.1.0...v2.1.1) (2026-01-18)
 
 
